@@ -26,7 +26,7 @@
       height: 240px;
       border: 2px solid #00ff00;
       border-radius: 8px;
-      transform: scaleX(-1); /* Зеркалка */
+      transform: scaleX(-1);
     }
     #debug {
       position: absolute;
@@ -39,14 +39,14 @@
       border: 1px solid #555;
       z-index: 100;
     }
-    #rickroll-player {
+    #rickroll-frame {
       display: none;
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      object-fit: cover;
+      border: none;
       z-index: 999;
     }
     button {
@@ -74,17 +74,19 @@
 
   <div id="start-screen">
     <h2>Проверка движения</h2>
-    <p>Нажми кнопку, разреши камеру и помаши/потряси руками</p>
+    <p>Нажми кнопку, разреши камеру и помаши руками</p>
     <button onclick="startApp()">Запустить камеру</button>
   </div>
 
   <video id="webcam" playsinline></video>
-  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" playsinline muted></video>
+  
+  <!-- Встраиваем YouTube вместо прямого MP4 -->
+  <iframe id="rickroll-frame" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 </div>
 
 <script>
   const webcamElement = document.getElementById('webcam');
-  const rickrollPlayer = document.getElementById('rickroll-player');
+  const rickrollFrame = document.getElementById('rickroll-frame');
   const motionValEl = document.getElementById('motion-val');
   const shakeValEl = document.getElementById('shake-val');
   const camStatusEl = document.getElementById('cam-status');
@@ -92,7 +94,7 @@
   let lastWristY = null;
   let shakeCount = 0;
   let triggered = false;
-  let calibrationDelay = 30; // 30 кадров на игнорирование начального шума
+  let calibrationDelay = 30; // 30 кадров задержки при старте
 
   async function startApp() {
     document.getElementById('start-screen').style.display = 'none';
@@ -109,7 +111,7 @@
       });
 
       pose.setOptions({
-        modelComplexity: 1,
+        modelComplexity: 0,
         smoothLandmarks: true
       });
 
@@ -132,6 +134,7 @@
   function onResults(results) {
     if (triggered || !results.poseLandmarks) return;
 
+    // Игнорируем первые кадры для защиты от ложного старта
     if (calibrationDelay > 0) {
       calibrationDelay--;
       return;
@@ -147,11 +150,11 @@
         const deltaY = Math.abs(avgY - lastWristY);
         motionValEl.innerText = deltaY.toFixed(4);
 
-        if (deltaY > 0.05) { 
+        if (deltaY > 0.04) { 
           shakeCount++;
           shakeValEl.innerText = `${shakeCount} / 5`;
         } else {
-          if (shakeCount > 0) shakeCount -= 0.2; 
+          if (shakeCount > 0) shakeCount -= 0.1; // Плавный сброс
         }
 
         if (shakeCount >= 5) {
@@ -167,9 +170,9 @@
 
   function doTrigger() {
     camStatusEl.innerText = "СРАБОТАЛО!";
-    rickrollPlayer.style.display = 'block';
-    rickrollPlayer.currentTime = 0;
-    rickrollPlayer.play();
+    // Загружаем YouTube клип с автозапуском
+    rickrollFrame.src = "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1";
+    rickrollFrame.style.display = 'block';
   }
 </script>
 
