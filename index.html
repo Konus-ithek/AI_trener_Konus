@@ -1,108 +1,152 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Surprise!</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #000;
-            font-family: Arial, sans-serif;
-            cursor: pointer;
-        }
-
-        /* Экран-заставка */
-        #overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #111;
-            z-index: 10;
-            transition: opacity 0.5s ease;
-        }
-
-        #overlay h1 {
-            color: #ffffff;
-            font-size: 2.5rem;
-            text-align: center;
-            user-select: none;
-        }
-
-        /* Видеоконтейнер */
-        #video-container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Motion Trainer</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #webcam {
+      position: absolute;
+      top: 20%;
+      width: 320px;
+      height: 240px;
+      border: 2px solid #007bff;
+      border-radius: 8px;
+    }
+    .instructions {
+      position: absolute;
+      top: 50%;
+      width: 80%;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 15px;
+      border-radius: 12px;
+      border: 1px solid #333;
+      z-index: 10;
+    }
+    #rickroll-player {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 999;
+    }
+    button {
+      padding: 15px 25px;
+      font-size: 18px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <!-- Надпись при входе -->
-    <div id="overlay">
-        <h1>Нажми на экран</h1>
-    </div>
+<div id="container">
+  <div id="start-screen">
+    <h2>AI Motion Trainer</h2>
+    <p>Встаньте перед камерой и подвигайте руками!</p>
+    <button onclick="startApp()">Начать</button>
+  </div>
 
-    <!-- Видео (Rickroll) -->
-    <div id="video-container">
-        <iframe 
-            id="rickroll" 
-            src="https://www.youtube.com/embed/dQw4w9WgXcQ?enablejsapi=1" 
-            allow="autoplay; fullscreen"
-            allowfullscreen>
-        </iframe>
-    </div>
+  <div class="instructions" id="instructions" style="display:none;">
+    <h3 id="status-text">Камера включена</h3>
+  </div>
 
-    <script>
-        const overlay = document.getElementById('overlay');
-        const iframe = document.getElementById('rickroll');
-        const container = document.getElementById('video-container');
+  <video id="webcam" playsinline></video>
+  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" playsinline></video>
+</div>
 
-        document.body.addEventListener('click', function startExperience() {
-            // Удаляем обработчик, чтобы не срабатывал повторно
-            document.body.removeEventListener('click', startExperience);
+<script>
+  const webcamElement = document.getElementById('webcam');
+  const rickrollPlayer = document.getElementById('rickroll-player');
+  let lastHandX = null;
+  let shakeCount = 0;
+  let triggered = false;
 
-            // Скрываем заставку с текстом
-            overlay.style.opacity = '0';
-            setTimeout(() => {
-                overlay.style.display = 'none';
-            }, 500);
+  async function startApp() {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('instructions').style.display = 'block';
 
-            // Запускаем видео с помощью YouTube API (postMessage)
-            iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    webcamElement.srcObject = stream;
+    webcamElement.play();
 
-            // Запрашиваем полноэкранный режим для контейнера
-            if (container.requestFullscreen) {
-                container.requestFullscreen();
-            } else if (container.webkitRequestFullscreen) { /* Safari */
-                container.webkitRequestFullscreen();
-            } else if (container.msRequestFullscreen) { /* IE11 */
-                container.msRequestFullscreen();
-            }
-        });
-    </script>
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+      modelComplexity: 0,
+      smoothLandmarks: true
+    });
+
+    pose.onResults(onResults);
+
+    const camera = new Camera(webcamElement, {
+      onFrame: async () => {
+        if (!triggered) await pose.send({ image: webcamElement });
+      },
+      width: 480,
+      height: 640
+    });
+    camera.start();
+  }
+
+  function onResults(results) {
+    if (triggered || !results.poseLandmarks) return;
+
+    const leftWrist = results.poseLandmarks[15];
+    const rightWrist = results.poseLandmarks[16];
+
+    if (leftWrist && rightWrist) {
+      const avgHandX = (leftWrist.x + rightWrist.x) / 2;
+
+      if (lastHandX !== null) {
+        const deltaX = Math.abs(avgHandX - lastHandX);
+
+        if (deltaX > 0.04) { 
+          shakeCount++;
+        }
+
+        if (shakeCount > 5) {
+          triggered = true;
+          doRickroll();
+        }
+      }
+      lastHandX = avgHandX;
+    }
+  }
+
+  function doRickroll() {
+    rickrollPlayer.style.display = 'block';
+    rickrollPlayer.currentTime = 0;
+    rickrollPlayer.play();
+  }
+</script>
 
 </body>
 </html>
