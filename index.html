@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Motion Detection Test</title>
+  <title>Fist Motion Detection</title>
   <style>
     body {
       margin: 0;
@@ -21,38 +21,50 @@
       align-items: center;
       justify-content: center;
     }
-    #webcam {
+    .video-wrapper {
+      position: relative;
       width: 320px;
       height: 240px;
-      border: 2px solid #00ff00;
+    }
+    #webcam, #output-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 320px;
+      height: 240px;
       border-radius: 8px;
       transform: scaleX(-1);
+    }
+    #webcam {
+      border: 2px solid #333;
     }
     #debug {
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(0,0,0,0.8);
+      background: rgba(0,0,0,0.85);
       padding: 10px;
       text-align: left;
       font-size: 14px;
       border: 1px solid #555;
       z-index: 100;
+      border-radius: 6px;
     }
-    #rickroll-frame {
+    #prank-video {
       display: none;
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      border: none;
+      object-fit: cover;
       z-index: 999;
+      background: #000;
     }
     button {
       padding: 12px 24px;
       font-size: 18px;
-      background: #007bff;
+      background: #28a745;
       color: white;
       border: none;
       border-radius: 6px;
@@ -68,25 +80,30 @@
 <div id="container">
   <div id="debug">
     <div>Камера: <span id="cam-status">выключена</span></div>
-    <div>Движение: <span id="motion-val">0</span></div>
-    <div>Счетчик: <span id="shake-val">0 / 5</span></div>
+    <div>Движение кулаков: <span id="motion-val">0</span></div>
+    <div>Счетчик: <span id="shake-val">0 / 6</span></div>
   </div>
 
   <div id="start-screen">
-    <h2>Проверка движения</h2>
-    <p>Нажми кнопку, разреши камеру и помаши руками</p>
-    <button onclick="startApp()">Запустить камеру</button>
+    <h2>Детектор движения кулаков</h2>
+    <p>Нажми кнопку и помаши кулаками перед камерой</p>
+    <button onclick="startApp()">Запустить</button>
   </div>
 
-  <video id="webcam" playsinline></video>
-  
-  <!-- Встраиваем YouTube вместо прямого MP4 -->
-  <iframe id="rickroll-frame" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+  <div class="video-wrapper">
+    <video id="webcam" playsinline></video>
+    <canvas id="output-canvas" width="320" height="240"></canvas>
+  </div>
+
+  <!-- Прямой MP4 файл без рекламы -->
+  <video id="prank-video" src="https://upload.wikimedia.org/wikipedia/commons/2/22/Rick_Astley_-_Never_Gonna_Give_You_Up_%281987%29.ogv" playsinline></video>
 </div>
 
 <script>
   const webcamElement = document.getElementById('webcam');
-  const rickrollFrame = document.getElementById('rickroll-frame');
+  const canvasElement = document.getElementById('output-canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const prankVideo = document.getElementById('prank-video');
   const motionValEl = document.getElementById('motion-val');
   const shakeValEl = document.getElementById('shake-val');
   const camStatusEl = document.getElementById('cam-status');
@@ -94,7 +111,6 @@
   let lastWristY = null;
   let shakeCount = 0;
   let triggered = false;
-  let calibrationDelay = 30; // 30 кадров задержки при старте
 
   async function startApp() {
     document.getElementById('start-screen').style.display = 'none';
@@ -126,53 +142,76 @@
       });
       camera.start();
     } catch (err) {
-      camStatusEl.innerText = "Ошибка доступа к камере";
+      camStatusEl.innerText = "Ошибка камеры";
       console.error(err);
     }
   }
 
   function onResults(results) {
-    if (triggered || !results.poseLandmarks) return;
+    if (triggered) return;
 
-    // Игнорируем первые кадры для защиты от ложного старта
-    if (calibrationDelay > 0) {
-      calibrationDelay--;
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    if (!results.poseLandmarks) {
+      motionValEl.innerText = "Руки не видны";
       return;
     }
 
+    // Индексы 15 и 16 — левое и правое запястья (кулаки)
     const leftWrist = results.poseLandmarks[15];
     const rightWrist = results.poseLandmarks[16];
 
-    if (leftWrist && rightWrist) {
-      const avgY = (leftWrist.y + rightWrist.y) / 2;
+    // Рисуем маркеры только на запястьях/кулаках
+    drawWristPoint(leftWrist);
+    drawWristPoint(rightWrist);
+
+    if (leftWrist || rightWrist) {
+      let currentY = 0;
+      if (leftWrist && rightWrist) {
+        currentY = (leftWrist.y + rightWrist.y) / 2;
+      } else {
+        currentY = leftWrist ? leftWrist.y : rightWrist.y;
+      }
 
       if (lastWristY !== null) {
-        const deltaY = Math.abs(avgY - lastWristY);
-        motionValEl.innerText = deltaY.toFixed(4);
+        const deltaY = Math.abs(currentY - lastWristY);
+        motionValEl.innerText = deltaY.toFixed(3);
 
-        if (deltaY > 0.04) { 
-          shakeCount++;
-          shakeValEl.innerText = `${shakeCount} / 5`;
+        // Порог срабатывания только для резких махов кистями
+        if (deltaY > 0.035) { 
+          shakeCount += 1;
+          shakeValEl.innerText = `${Math.floor(shakeCount)} / 6`;
         } else {
-          if (shakeCount > 0) shakeCount -= 0.1; // Плавный сброс
+          if (shakeCount > 0) shakeCount -= 0.05; // Очень плавный спад
         }
 
-        if (shakeCount >= 5) {
+        if (shakeCount >= 6) {
           triggered = true;
           doTrigger();
         }
       }
-      lastWristY = avgY;
-    } else {
-      motionValEl.innerText = "Руки не видны";
+      lastWristY = currentY;
     }
+  }
+
+  function drawWristPoint(landmark) {
+    if (!landmark || landmark.visibility < 0.5) return;
+    const x = landmark.x * canvasElement.width;
+    const y = landmark.y * canvasElement.height;
+
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
+    canvasCtx.fillStyle = '#00ff00';
+    canvasCtx.fill();
+    canvasCtx.lineWidth = 2;
+    canvasCtx.strokeStyle = '#ffffff';
+    canvasCtx.stroke();
   }
 
   function doTrigger() {
     camStatusEl.innerText = "СРАБОТАЛО!";
-    // Загружаем YouTube клип с автозапуском
-    rickrollFrame.src = "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1";
-    rickrollFrame.style.display = 'block';
+    prankVideo.style.display = 'block';
+    prankVideo.play();
   }
 </script>
 
