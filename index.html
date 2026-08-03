@@ -2,191 +2,187 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fist Motion Detection (No Ads)</title>
+  <title>Детектор движения кулака</title>
   <style>
     body {
-      margin: 0;
-      background: #111;
-      color: #fff;
-      font-family: monospace;
-      text-align: center;
-    }
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      min-height: 100vh;
+      margin: 0;
     }
-    #webcam {
-      width: 320px;
-      height: 240px;
+
+    #container {
+      position: relative;
+      width: 640px;
+      height: 480px;
       border: 2px solid #28a745;
       border-radius: 8px;
-      transform: scaleX(-1);
+      overflow: hidden;
+      background-color: #000;
     }
-    #debug {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.8);
-      padding: 10px;
-      text-align: left;
-      font-size: 14px;
-      border: 1px solid #555;
-      z-index: 100;
-    }
-    #rickroll-video {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
+
+    video {
+      width: 100%;
+      height: 100%;
       object-fit: cover;
-      z-index: 999;
     }
-    button {
-      padding: 12px 24px;
-      font-size: 18px;
-      background: #28a745;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
+
+    #controls {
       margin-top: 15px;
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #fff;
+      background-color: #28a745;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #218838;
+    }
+
+    #status-panel {
+      margin-top: 15px;
+      font-size: 14px;
+      line-height: 1.5;
     }
   </style>
 
-  <!-- MediaPipe Hands -->
+  <!-- MediaPipe Hands & Camera Utils -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-<div id="container">
-  <div id="debug">
-    <div>Статус: <span id="cam-status">выключена</span></div>
-    <div>Кулак найден: <span id="fist-status">Нет</span></div>
-    <div>Счетчик махов: <span id="shake-val">0 / 5</span></div>
+  <div id="container">
+    <!-- Добавлены muted, autoplay и loop для гарантированного запуска без блокировок -->
+    <video id="webcam" autoplay playsinline muted loop src="video.mp4"></video>
   </div>
 
-  <div id="start-screen">
-    <h2>Детектор движения кулаков</h2>
-    <p>Нажмите кнопку и машите сжатым кулаком перед камерой</p>
-    <button onclick="startApp()">Запустить</button>
+  <div id="controls">
+    <button id="start-btn">Запустить</button>
   </div>
 
-  <video id="webcam" playsinline></video>
+  <div id="status-panel">
+    <div>Статус: <span id="status-text">Не работает</span></div>
+    <div>Кулак найден: <span id="fist-text">Нет</span></div>
+    <div>Счетчик махов: <span id="shake-count">0</span> / 5</div>
+  </div>
 
-  <!-- Прямой MP4 файл без рекламы -->
-  <video id="rickroll-video" controls>
-    <source src="https://shattereddisk.github.io/rickroll/rickroll.mp4" type="video/mp4">
-  </video>
-</div>
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const startBtn = document.getElementById('start-btn');
+    const statusText = document.getElementById('status-text');
+    const fistText = document.getElementById('fist-text');
+    const shakeCountText = document.getElementById('shake-count');
 
-<script>
-  const webcamElement = document.getElementById('webcam');
-  const rickrollVideo = document.getElementById('rickroll-video');
-  const fistStatusEl = document.getElementById('fist-status');
-  const shakeValEl = document.getElementById('shake-val');
-  const camStatusEl = document.getElementById('cam-status');
+    let camera = null;
+    let isFistClosed = false;
+    let shakeCount = 0;
+    let lastX = null;
+    let lastShakeTime = 0;
 
-  let lastFistX = null;
-  let shakeCount = 0;
-  let triggered = false;
+    // Оптимизированная проверка сжатого кулака
+    function checkIsFist(landmarks) {
+      // Сравниваем кончики пальцев с соответствующими суставами (PIP)
+      const fingerTips = [8, 12, 16, 20];
+      const fingerPips = [6, 10, 14, 18];
 
-  // Проверка: сжат ли кулак (кончики пальцев ниже средних фаланг)
-  function isFist(landmarks) {
-    const fingerTips = [8, 12, 16, 20];
-    const fingerPips = [6, 10, 14, 18];
+      let foldedFingers = 0;
 
-    for (let i = 0; i < fingerTips.length; i++) {
-      if (landmarks[fingerTips[i]].y < landmarks[fingerPips[i]].y) {
-        return false; // Если хоть один палец разогнут вверх — это не кулак
-      }
-    }
-    return true;
-  }
+      for (let i = 0; i < fingerTips.length; i++) {
+        const tip = landmarks[fingerTips[i]];
+        const pip = landmarks[fingerPips[i]];
+        const wrist = landmarks[0];
 
-  async function startApp() {
-    document.getElementById('start-screen').style.display = 'none';
-    camStatusEl.innerText = "Подключение...";
+        // Измеряем расстояние до запястья, чтобы определять кулак независимо от наклона кисти
+        const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+        const distPip = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
 
-    try {
-      const hands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-      });
-
-      hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6
-      });
-
-      hands.onResults(onResults);
-
-      const camera = new Camera(webcamElement, {
-        onFrame: async () => {
-          if (!triggered) await hands.send({ image: webcamElement });
-        },
-        width: 320,
-        height: 240
-      });
-
-      await camera.start();
-      camStatusEl.innerText = "Работает";
-    } catch (err) {
-      camStatusEl.innerText = "Ошибка доступа";
-      console.error(err);
-    }
-  }
-
-  function onResults(results) {
-    if (triggered) return;
-
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const landmarks = results.multiHandLandmarks[0];
-
-      if (isFist(landmarks)) {
-        fistStatusEl.innerText = "Да";
-        const currentX = landmarks[0].x; // Положение запястья/кисти
-
-        if (lastFistX !== null) {
-          const deltaX = Math.abs(currentX - lastFistX);
-
-          // Фиксируем только явные махи кулаком из стороны в сторону
-          if (deltaX > 0.05) {
-            shakeCount++;
-            shakeValEl.innerText = `${shakeCount} / 5`;
-          }
-
-          if (shakeCount >= 5) {
-            triggered = true;
-            doTrigger();
-          }
+        if (distTip < distPip) {
+          foldedFingers++;
         }
-        lastFistX = currentX;
-      } else {
-        fistStatusEl.innerText = "Разогнута ладонь";
-        lastFistX = null;
       }
-    } else {
-      fistStatusEl.innerText = "Рука не видна";
-      lastFistX = null;
+
+      // Если хотя бы 3 пальца из 4 согнуты — считаем за кулак
+      return foldedFingers >= 3;
     }
-  }
 
-  function doTrigger() {
-    camStatusEl.innerText = "СРАБОТАЛО!";
-    rickrollVideo.style.display = 'block';
-    rickrollVideo.play();
-  }
-</script>
+    function onResults(results) {
+      statusText.innerText = "Работает";
 
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        isFistClosed = checkIsFist(landmarks);
+
+        fistText.innerText = isFistClosed ? "Да" : "Разомкнута ладонь";
+
+        if (isFistClosed) {
+          const currentX = landmarks[0].x; // Отслеживаем движение по точке запястья
+          const now = Date.now();
+
+          if (lastX !== null && (now - lastShakeTime > 300)) {
+            const deltaX = Math.abs(currentX - lastX);
+            
+            // Порог чувствительности для тряски/маха
+            if (deltaX > 0.08) { 
+              shakeCount++;
+              shakeCountText.innerText = shakeCount;
+              lastShakeTime = now;
+
+              if (shakeCount >= 5) {
+                shakeCount = 0; // Сброс при достижении лимита
+              }
+            }
+          }
+          lastX = currentX;
+        }
+      } else {
+        fistText.innerText = "Рука не видна";
+        lastX = null;
+      }
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults(onResults);
+
+    startBtn.addEventListener('click', () => {
+      // Принудительный запуск видео при клике
+      videoElement.play();
+
+      if (!camera) {
+        camera = new Camera(videoElement, {
+          onFrame: async () => {
+            await hands.send({ image: videoElement });
+          },
+          width: 640,
+          height: 480
+        });
+        camera.start();
+      }
+    });
+  </script>
 </body>
 </html>
