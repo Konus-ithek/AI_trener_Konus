@@ -3,15 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Motion Trainer</title>
+  <title>Motion Detection Test</title>
   <style>
     body {
       margin: 0;
-      background: #000;
+      background: #111;
       color: #fff;
-      font-family: sans-serif;
+      font-family: monospace;
       text-align: center;
-      overflow: hidden;
     }
     #container {
       position: relative;
@@ -23,26 +22,26 @@
       justify-content: center;
     }
     #webcam {
-      position: absolute;
-      top: 20%;
       width: 320px;
       height: 240px;
-      border: 2px solid #007bff;
+      border: 2px solid #00ff00;
       border-radius: 8px;
+      transform: scaleX(-1); /* Зеркалка */
     }
-    .instructions {
+    #debug {
       position: absolute;
-      top: 50%;
-      width: 80%;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 15px;
-      border-radius: 12px;
-      border: 1px solid #333;
-      z-index: 10;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.8);
+      padding: 10px;
+      text-align: left;
+      font-size: 14px;
+      border: 1px solid #555;
+      z-index: 100;
     }
     #rickroll-player {
       display: none;
-      position: absolute;
+      position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
@@ -51,13 +50,14 @@
       z-index: 999;
     }
     button {
-      padding: 15px 25px;
+      padding: 12px 24px;
       font-size: 18px;
       background: #007bff;
       color: white;
       border: none;
-      border-radius: 8px;
+      border-radius: 6px;
       cursor: pointer;
+      margin-top: 15px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -66,82 +66,103 @@
 <body>
 
 <div id="container">
-  <div id="start-screen">
-    <h2>AI Motion Trainer</h2>
-    <p>Встаньте перед камерой и подвигайте руками!</p>
-    <button onclick="startApp()">Начать</button>
+  <div id="debug">
+    <div>Камера: <span id="cam-status">выключена</span></div>
+    <div>Движение: <span id="motion-val">0</span></div>
+    <div>Счетчик: <span id="shake-val">0 / 3</span></div>
   </div>
 
-  <div class="instructions" id="instructions" style="display:none;">
-    <h3 id="status-text">Камера включена</h3>
+  <div id="start-screen">
+    <h2>Проверка движения</h2>
+    <p>Нажми кнопку, разреши камеру и помаши/потряси руками</p>
+    <button onclick="startApp()">Запустить камеру</button>
   </div>
 
   <video id="webcam" playsinline></video>
-  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" playsinline></video>
+  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" controls></video>
 </div>
 
 <script>
   const webcamElement = document.getElementById('webcam');
   const rickrollPlayer = document.getElementById('rickroll-player');
-  let lastHandX = null;
+  const motionValEl = document.getElementById('motion-val');
+  const shakeValEl = document.getElementById('shake-val');
+  const camStatusEl = document.getElementById('cam-status');
+
+  let lastWristY = null;
   let shakeCount = 0;
   let triggered = false;
 
   async function startApp() {
     document.getElementById('start-screen').style.display = 'none';
-    document.getElementById('instructions').style.display = 'block';
+    camStatusEl.innerText = "Подключение...";
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    webcamElement.srcObject = stream;
-    webcamElement.play();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      webcamElement.srcObject = stream;
+      await webcamElement.play();
+      camStatusEl.innerText = "Работает";
 
-    const pose = new Pose({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-    });
+      const pose = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      });
 
-    pose.setOptions({
-      modelComplexity: 0,
-      smoothLandmarks: true
-    });
+      pose.setOptions({
+        modelComplexity: 0,
+        smoothLandmarks: true
+      });
 
-    pose.onResults(onResults);
+      pose.onResults(onResults);
 
-    const camera = new Camera(webcamElement, {
-      onFrame: async () => {
-        if (!triggered) await pose.send({ image: webcamElement });
-      },
-      width: 480,
-      height: 640
-    });
-    camera.start();
+      const camera = new Camera(webcamElement, {
+        onFrame: async () => {
+          if (!triggered) await pose.send({ image: webcamElement });
+        },
+        width: 320,
+        height: 240
+      });
+      camera.start();
+    } catch (err) {
+      camStatusEl.innerText = "Ошибка доступа к камере";
+      console.error(err);
+    }
   }
 
   function onResults(results) {
     if (triggered || !results.poseLandmarks) return;
 
+    // Берем левое (15) и правое (16) запястья
     const leftWrist = results.poseLandmarks[15];
     const rightWrist = results.poseLandmarks[16];
 
     if (leftWrist && rightWrist) {
-      const avgHandX = (leftWrist.x + rightWrist.x) / 2;
+      const avgY = (leftWrist.y + rightWrist.y) / 2;
 
-      if (lastHandX !== null) {
-        const deltaX = Math.abs(avgHandX - lastHandX);
+      if (lastWristY !== null) {
+        const deltaY = Math.abs(avgY - lastWristY);
+        motionValEl.innerText = deltaY.toFixed(4);
 
-        if (deltaX > 0.04) { 
+        // Порог снижен до 0.02 для более легкой сработки
+        if (deltaY > 0.02) { 
           shakeCount++;
+          shakeValEl.innerText = `${shakeCount} / 3`;
+        } else {
+          if (shakeCount > 0) shakeCount -= 0.1; // Постепенное затухание
         }
 
-        if (shakeCount > 5) {
+        if (shakeCount >= 3) {
           triggered = true;
-          doRickroll();
+          doTrigger();
         }
       }
-      lastHandX = avgHandX;
+      lastWristY = avgY;
+    } else {
+      motionValEl.innerText = "Руки не видны";
     }
   }
 
-  function doRickroll() {
+  function doTrigger() {
+    camStatusEl.innerText = "СРАБОТАЛО!";
     rickrollPlayer.style.display = 'block';
     rickrollPlayer.currentTime = 0;
     rickrollPlayer.play();
