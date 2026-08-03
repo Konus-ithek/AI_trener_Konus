@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fist Motion Detection</title>
+  <title>Fist Motion Detection (No Ads)</title>
   <style>
     body {
       margin: 0;
@@ -21,36 +21,25 @@
       align-items: center;
       justify-content: center;
     }
-    .video-wrapper {
-      position: relative;
+    #webcam {
       width: 320px;
       height: 240px;
-    }
-    #webcam, #output-canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 320px;
-      height: 240px;
+      border: 2px solid #28a745;
       border-radius: 8px;
       transform: scaleX(-1);
-    }
-    #webcam {
-      border: 2px solid #333;
     }
     #debug {
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(0,0,0,0.85);
+      background: rgba(0,0,0,0.8);
       padding: 10px;
       text-align: left;
       font-size: 14px;
       border: 1px solid #555;
       z-index: 100;
-      border-radius: 6px;
     }
-    #prank-video {
+    #rickroll-video {
       display: none;
       position: fixed;
       top: 0;
@@ -59,7 +48,6 @@
       height: 100vh;
       object-fit: cover;
       z-index: 999;
-      background: #000;
     }
     button {
       padding: 12px 24px;
@@ -72,77 +60,88 @@
       margin-top: 15px;
     }
   </style>
+
+  <!-- MediaPipe Hands -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
 <div id="container">
   <div id="debug">
-    <div>Камера: <span id="cam-status">выключена</span></div>
-    <div>Движение кулаков: <span id="motion-val">0</span></div>
-    <div>Счетчик: <span id="shake-val">0 / 6</span></div>
+    <div>Статус: <span id="cam-status">выключена</span></div>
+    <div>Кулак найден: <span id="fist-status">Нет</span></div>
+    <div>Счетчик махов: <span id="shake-val">0 / 5</span></div>
   </div>
 
   <div id="start-screen">
     <h2>Детектор движения кулаков</h2>
-    <p>Нажми кнопку и помаши кулаками перед камерой</p>
+    <p>Нажмите кнопку и машите сжатым кулаком перед камерой</p>
     <button onclick="startApp()">Запустить</button>
   </div>
 
-  <div class="video-wrapper">
-    <video id="webcam" playsinline></video>
-    <canvas id="output-canvas" width="320" height="240"></canvas>
-  </div>
+  <video id="webcam" playsinline></video>
 
   <!-- Прямой MP4 файл без рекламы -->
-  <video id="prank-video" src="https://upload.wikimedia.org/wikipedia/commons/2/22/Rick_Astley_-_Never_Gonna_Give_You_Up_%281987%29.ogv" playsinline></video>
+  <video id="rickroll-video" controls>
+    <source src="https://shattereddisk.github.io/rickroll/rickroll.mp4" type="video/mp4">
+  </video>
 </div>
 
 <script>
   const webcamElement = document.getElementById('webcam');
-  const canvasElement = document.getElementById('output-canvas');
-  const canvasCtx = canvasElement.getContext('2d');
-  const prankVideo = document.getElementById('prank-video');
-  const motionValEl = document.getElementById('motion-val');
+  const rickrollVideo = document.getElementById('rickroll-video');
+  const fistStatusEl = document.getElementById('fist-status');
   const shakeValEl = document.getElementById('shake-val');
   const camStatusEl = document.getElementById('cam-status');
 
-  let lastWristY = null;
+  let lastFistX = null;
   let shakeCount = 0;
   let triggered = false;
+
+  // Проверка: сжат ли кулак (кончики пальцев ниже средних фаланг)
+  function isFist(landmarks) {
+    const fingerTips = [8, 12, 16, 20];
+    const fingerPips = [6, 10, 14, 18];
+
+    for (let i = 0; i < fingerTips.length; i++) {
+      if (landmarks[fingerTips[i]].y < landmarks[fingerPips[i]].y) {
+        return false; // Если хоть один палец разогнут вверх — это не кулак
+      }
+    }
+    return true;
+  }
 
   async function startApp() {
     document.getElementById('start-screen').style.display = 'none';
     camStatusEl.innerText = "Подключение...";
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      webcamElement.srcObject = stream;
-      await webcamElement.play();
-      camStatusEl.innerText = "Работает";
-
-      const pose = new Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
 
-      pose.setOptions({
-        modelComplexity: 0,
-        smoothLandmarks: true
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
       });
 
-      pose.onResults(onResults);
+      hands.onResults(onResults);
 
       const camera = new Camera(webcamElement, {
         onFrame: async () => {
-          if (!triggered) await pose.send({ image: webcamElement });
+          if (!triggered) await hands.send({ image: webcamElement });
         },
         width: 320,
         height: 240
       });
-      camera.start();
+
+      await camera.start();
+      camStatusEl.innerText = "Работает";
     } catch (err) {
-      camStatusEl.innerText = "Ошибка камеры";
+      camStatusEl.innerText = "Ошибка доступа";
       console.error(err);
     }
   }
@@ -150,68 +149,42 @@
   function onResults(results) {
     if (triggered) return;
 
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
 
-    if (!results.poseLandmarks) {
-      motionValEl.innerText = "Руки не видны";
-      return;
-    }
+      if (isFist(landmarks)) {
+        fistStatusEl.innerText = "Да";
+        const currentX = landmarks[0].x; // Положение запястья/кисти
 
-    // Индексы 15 и 16 — левое и правое запястья (кулаки)
-    const leftWrist = results.poseLandmarks[15];
-    const rightWrist = results.poseLandmarks[16];
+        if (lastFistX !== null) {
+          const deltaX = Math.abs(currentX - lastFistX);
 
-    // Рисуем маркеры только на запястьях/кулаках
-    drawWristPoint(leftWrist);
-    drawWristPoint(rightWrist);
+          // Фиксируем только явные махи кулаком из стороны в сторону
+          if (deltaX > 0.05) {
+            shakeCount++;
+            shakeValEl.innerText = `${shakeCount} / 5`;
+          }
 
-    if (leftWrist || rightWrist) {
-      let currentY = 0;
-      if (leftWrist && rightWrist) {
-        currentY = (leftWrist.y + rightWrist.y) / 2;
+          if (shakeCount >= 5) {
+            triggered = true;
+            doTrigger();
+          }
+        }
+        lastFistX = currentX;
       } else {
-        currentY = leftWrist ? leftWrist.y : rightWrist.y;
+        fistStatusEl.innerText = "Разогнута ладонь";
+        lastFistX = null;
       }
-
-      if (lastWristY !== null) {
-        const deltaY = Math.abs(currentY - lastWristY);
-        motionValEl.innerText = deltaY.toFixed(3);
-
-        // Порог срабатывания только для резких махов кистями
-        if (deltaY > 0.035) { 
-          shakeCount += 1;
-          shakeValEl.innerText = `${Math.floor(shakeCount)} / 6`;
-        } else {
-          if (shakeCount > 0) shakeCount -= 0.05; // Очень плавный спад
-        }
-
-        if (shakeCount >= 6) {
-          triggered = true;
-          doTrigger();
-        }
-      }
-      lastWristY = currentY;
+    } else {
+      fistStatusEl.innerText = "Рука не видна";
+      lastFistX = null;
     }
-  }
-
-  function drawWristPoint(landmark) {
-    if (!landmark || landmark.visibility < 0.5) return;
-    const x = landmark.x * canvasElement.width;
-    const y = landmark.y * canvasElement.height;
-
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
-    canvasCtx.fillStyle = '#00ff00';
-    canvasCtx.fill();
-    canvasCtx.lineWidth = 2;
-    canvasCtx.strokeStyle = '#ffffff';
-    canvasCtx.stroke();
   }
 
   function doTrigger() {
     camStatusEl.innerText = "СРАБОТАЛО!";
-    prankVideo.style.display = 'block';
-    prankVideo.play();
+    rickrollVideo.style.display = 'block';
+    rickrollVideo.play();
   }
 </script>
 
