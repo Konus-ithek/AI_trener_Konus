@@ -69,7 +69,7 @@
   <div id="debug">
     <div>Камера: <span id="cam-status">выключена</span></div>
     <div>Движение: <span id="motion-val">0</span></div>
-    <div>Счетчик: <span id="shake-val">0 / 3</span></div>
+    <div>Счетчик: <span id="shake-val">0 / 5</span></div>
   </div>
 
   <div id="start-screen">
@@ -79,7 +79,7 @@
   </div>
 
   <video id="webcam" playsinline></video>
-  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" controls></video>
+  <video id="rickroll-player" src="https://archive.org/download/RickAstleyNeverGonnaGiveYouUp/RickAstleyNeverGonnaGiveYouUp.mp4" playsinline muted></video>
 </div>
 
 <script>
@@ -92,6 +92,7 @@
   let lastWristY = null;
   let shakeCount = 0;
   let triggered = false;
+  let calibrationDelay = 30; // 30 кадров на игнорирование начального шума
 
   async function startApp() {
     document.getElementById('start-screen').style.display = 'none';
@@ -108,7 +109,7 @@
       });
 
       pose.setOptions({
-        modelComplexity: 0,
+        modelComplexity: 1,
         smoothLandmarks: true
       });
 
@@ -131,7 +132,11 @@
   function onResults(results) {
     if (triggered || !results.poseLandmarks) return;
 
-    // Берем левое (15) и правое (16) запястья
+    if (calibrationDelay > 0) {
+      calibrationDelay--;
+      return;
+    }
+
     const leftWrist = results.poseLandmarks[15];
     const rightWrist = results.poseLandmarks[16];
 
@@ -142,15 +147,14 @@
         const deltaY = Math.abs(avgY - lastWristY);
         motionValEl.innerText = deltaY.toFixed(4);
 
-        // Порог снижен до 0.02 для более легкой сработки
-        if (deltaY > 0.02) { 
+        if (deltaY > 0.05) { 
           shakeCount++;
-          shakeValEl.innerText = `${shakeCount} / 3`;
+          shakeValEl.innerText = `${shakeCount} / 5`;
         } else {
-          if (shakeCount > 0) shakeCount -= 0.1; // Постепенное затухание
+          if (shakeCount > 0) shakeCount -= 0.2; 
         }
 
-        if (shakeCount >= 3) {
+        if (shakeCount >= 5) {
           triggered = true;
           doTrigger();
         }
